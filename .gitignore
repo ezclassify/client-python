@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.pyo
+.coverage
+htmlcov/
+.pytest_cache/
+.venv/
+.regen-venv/
+dist/
+*.egg-info/
+.DS_Store
+
+CLAUDE.local.md

@@ -1,0 +1,23 @@
+# Gitleaks config for the secret-scan CI gate. Extends the default ruleset;
+# the allowlist below covers known non-secrets only. Keep every entry narrow
+# and explain why it exists.
+
+[extend]
+useDefault = true
+
+# 64-hex content-address hashes in vendor/spec/ trip the generic-api-key rule.
+# why vendor/spec/MANIFEST.json: carries sha256 provenance hashes (openapiSha256,
+# specBundleSha256, specDigest, per-generator hashes) written by the spec bot.
+# They are content hashes, not credentials, and vendor/ is bot-write-only so the
+# file cannot be reworded here.
+# why vendor/spec/replayer-contract/v1/README.md: documents the recording-key
+# algorithm with a literal sha256 example value.
+# condition = "AND" keeps this tight: only 64-hex strings inside these two
+# files are allowlisted; any real credential shape there would still be flagged.
+[[allowlists]]
+condition = "AND"
+paths = [
+  '''vendor/spec/MANIFEST\.json''',
+  '''vendor/spec/replayer-contract/v1/README\.md''',
+]
+regexes = ['''\b[a-f0-9]{64}\b''']

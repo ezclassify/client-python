@@ -1,0 +1,37 @@
+version: 2
+
+updates:
+  - package-ecosystem: pip
+    directories:
+      - /
+      - /types
+      - /client
+      - /examples/llm-classify
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      pip-production:
+        dependency-type: production
+        update-types: [minor, patch]
+      pip-development:
+        dependency-type: development
+        update-types: [minor, patch]
+    # Only the first-party packages are held back: every release sets their
+    # versions together, so a bump proposed here would fight the release. A third-party major raises a pull request like
+    # anything else and lands after review; the supported Python matrix and the
+    # license, notices and SBOM gates all run on it.
+    ignore:
+      - dependency-name: 'ezclassify-rest-*'
+    labels: [dependencies]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      github-actions:
+        patterns: ['*']
+        update-types: [minor, patch]
+    labels: [dependencies, ci]

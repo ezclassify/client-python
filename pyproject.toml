@@ -1,0 +1,90 @@
+# Dev-only integration harness, NOT published to PyPI.
+# The public ship set is ezclassify-rest-contract (types/) and
+# ezclassify-rest-client (client/).
+# This package carries no implementation of its own: it hosts the conformance
+# replayer and delegates every public name to the published packages, which the
+# Makefile and CI install editable from this workspace before running it.
+# The "Private :: Do Not Upload" classifier below makes PyPI reject any accidental upload.
+[build-system]
+requires = ["setuptools>=84.2.1", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ezclassify"
+version = "1.0.0.dev30"
+description = "EzClassify Python SDK dev harness: conformance replayer over the published packages"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+dependencies = [
+    "ezclassify-rest-contract",
+    "ezclassify-rest-client",
+]
+classifiers = ["Private :: Do Not Upload"]
+
+[project.optional-dependencies]
+dev = ["pytest>=9.1", "pytest-cov>=7.1", "PyYAML>=6.0.3"]
+
+[tool.setuptools.packages.find]
+include = ["ezclassify*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = ["live"]
+addopts = "--cov=ezclassify --cov-report=term-missing --import-mode=importlib"
+
+# One ruff config for the whole repo: the subpackage pyprojects carry no
+# [tool.ruff] table, so ruff resolves every file against this one.
+[tool.ruff]
+extend-exclude = [
+    # Bot-written spec mirror; never linted or reformatted here.
+    "vendor",
+    # Generator output: freshness requires it to match scripts/gen_models.py
+    # byte for byte, so format changes belong in the generator.
+    "types/ezclassify_rest_contract/models.py",
+]
+
+[tool.ruff.lint]
+# Preserve the repository's lint policy across Ruff default changes: (E4, E7, E9, F),
+# flake8-bandit (S) and
+# flake8-blind-except (BLE). RUF100 keeps the set honest by reporting an
+# unused noqa directive.
+select = ["E4", "E7", "E9", "F", "S", "BLE", "RUF100"]
+
+[tool.ruff.lint.per-file-ignores]
+# Asserting is what a test does.
+"**/tests/*.py" = ["S101"]
+# The e2e suite runs the example CLI as a subprocess with arguments it builds
+# itself; driving the real process is the behavior under test.
+"examples/llm-classify/tests/live/test_e2e.py" = ["S603"]
+# The vendor gate shells out to git to read commit identity and history.
+"tests/test_vendor_gate.py" = ["S603", "S607"]
+# The replay suites open file: URLs naming cases in the vendored corpus.
+"tests/test_conformance.py" = ["S310"]
+"tests/test_replayer_contract.py" = ["S310"]
+# Fixture tokens for a mocked transport, never real credentials.
+"client/tests/test_client.py" = ["S106"]
+"client/tests/test_context.py" = ["S106"]
+"tests/test_cache_conformance.py" = ["S106"]
+# Fixture tokens for the example adapter test, never real credentials.
+"examples/llm-classify/tests/test_client.py" = ["S105", "S106"]
+
+# mypy gates the two published, py.typed packages (types/, client/) in --strict mode; the repo-root dev harness is out
+# of scope, same as for the api-surface golden. The generated production models are included:
+# freshness is not a substitute for checking the annotations users import.
+# The pydantic plugin teaches mypy the alias/populate_by_name constructor
+# signatures the models rely on.
+[tool.mypy]
+strict = true
+# Check the oldest supported Python runtime.
+python_version = "3.11"
+plugins = ["pydantic.mypy"]
+files = [
+    "types/ezclassify_rest_contract",
+    "client/ezclassify_rest_client",
+]
+
+# Reject an undeclared keyword when a model is constructed, so a typo such as
+# Assertion(expiresat=...) fails type checking as well as at runtime.
+[tool.pydantic-mypy]
+init_forbid_extra = true

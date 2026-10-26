@@ -1,0 +1,18 @@
+# Auto detect text files and perform LF normalization
+* text=auto
+
+# Explicitly declare text files
+*.py text
+*.typed text
+*.json text
+*.yaml text
+*.yml text
+*.md text
+*.mjs text
+*.sh text
+*.toml text
+*.txt text
+*.svg text
+
+# Generated files
+types/ezclassify_rest_contract/models.py linguist-generated=true

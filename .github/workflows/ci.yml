@@ -1,0 +1,200 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly, not nightly: push + PR runs are the primary gate; the schedule
+    # exists only so the regen-and-diff steps below catch vendored-spec or
+    # generator drift between pushes.
+    - cron: '0 6 * * 0'   # Sunday 06:00 UTC; only fires on the repo's default branch
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Lint plus spec/generator integrity (regen-and-diff) on a single runner.
+  checks:
+    if: ${{ github.event_name != 'schedule' || github.repository_owner == 'ezclassify' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.12'
+
+      - name: Lint and check formatting (ruff)
+        run: make lint
+
+      # Static typing gate for the py.typed packages: the published
+      # annotations are checked in --strict mode (config in the root
+      # pyproject.toml [tool.mypy] table) so a PEP 561 consumer running mypy
+      # never sees errors our own CI did not.
+      - name: Static type check (mypy --strict)
+        run: |
+          pip install --quiet mypy==2.4.0 ./types ./client
+          mypy
+
+      # Verifies that the shipped production models match the vendored
+      # OpenAPI/JSON Schema contracts. The helper module is handwritten;
+      # declarations are not duplicated there.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+
+      - name: Read MANIFEST
+        id: manifest
+        run: |
+          python3 -c "
+          import json, os
+          m = json.load(open('vendor/spec/MANIFEST.json'))
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write('spec_sha256=' + m['openapiSha256'] + '\n')
+              f.write('gen_sha256=' + m['generators']['python']['sha256'] + '\n')
+          "
+
+      - name: Verify spec hash
+        run: |
+          ACTUAL=$(sha256sum vendor/spec/openapi.yaml | awk '{print $1}')
+          if [ "${{ steps.manifest.outputs.spec_sha256 }}" != "$ACTUAL" ]; then
+            echo "ERROR: vendor/spec/openapi.yaml SHA mismatch"
+            echo "  MANIFEST: ${{ steps.manifest.outputs.spec_sha256 }}"
+            echo "  actual:   $ACTUAL"
+            exit 1
+          fi
+
+      - name: Verify generator script hash
+        run: |
+          EXPECTED="${{ steps.manifest.outputs.gen_sha256 }}"
+          ACTUAL=$(sha256sum scripts/gen.mjs | awk '{print $1}')
+          if [ "$EXPECTED" != "$ACTUAL" ]; then
+            echo "ERROR: scripts/gen.mjs hash mismatch. The generator may have been modified without updating MANIFEST"
+            echo "  MANIFEST: $EXPECTED"
+            echo "  actual:   $ACTUAL"
+            exit 1
+          fi
+
+      - name: Regenerate shipped models from vendored contracts
+        run: make regen
+
+      - name: Check for unexpected changes
+        run: |
+          if ! git diff --exit-code -- types/ezclassify_rest_contract/models.py; then
+            echo ""
+            echo "ERROR: Shipped generated models differ from the vendored contracts."
+            echo "Run 'make regen' locally and commit models.py."
+            exit 1
+          fi
+
+      # The public API of the published packages (ezclassify-rest-contract,
+      # -client) is frozen at 1.0. This diffs the live source
+      # surface against the reviewed api-surface.txt and fails on any drift.
+      # Stdlib-only ast walk, so no build or install is needed. Deliberate API
+      # changes regenerate the golden with 'make api-surface' and commit it.
+      - name: Check 1.0 public API surface
+        run: python3 scripts/check_api_surface.py --check
+
+      # License compliance over the real production closure: the two
+      # published packages installed non-editable into a clean venv, then
+      # checked by pip-licenses (CI-only tool, pinned) against a permissive
+      # allowlist. certifi (MPL-2.0, transitive of httpx) is the single
+      # reviewed exception and is gated separately so the main allowlist
+      # stays permissive-only; rationale in THIRD-PARTY-NOTICES.md.
+      - name: Dependency license compliance
+        run: |
+          python -m venv "$RUNNER_TEMP/prod-closure"
+          "$RUNNER_TEMP/prod-closure/bin/pip" install --quiet ./types ./client
+          pip install --quiet pip-licenses==5.5.5
+          pip-licenses --python "$RUNNER_TEMP/prod-closure/bin/python" --from=mixed \
+            --ignore-packages certifi \
+            --allow-only "MIT;MIT License;BSD;BSD License;BSD-2-Clause;BSD-3-Clause;ISC;ISC License (ISCL);Apache-2.0;Apache Software License;PSF-2.0;Python Software Foundation License"
+          pip-licenses --python "$RUNNER_TEMP/prod-closure/bin/python" --from=mixed \
+            --packages certifi \
+            --allow-only "MPL-2.0;Mozilla Public License 2.0 (MPL 2.0)"
+
+      # THIRD-PARTY-NOTICES.md is generated from the packages' declared
+      # runtime dependencies; regenerate and diff so it cannot go stale.
+      - name: Third-party notices are current
+        run: |
+          "$RUNNER_TEMP/prod-closure/bin/python" scripts/gen-notices.py
+          git diff --exit-code THIRD-PARTY-NOTICES.md
+
+      # CycloneDX SBOM of the same clean production closure (dist/ is
+      # gitignored, so this cannot dirty the tree).
+      - name: Generate SBOM
+        run: |
+          pip install --quiet cyclonedx-bom==7.5.0
+          mkdir -p dist
+          cyclonedx-py environment "$RUNNER_TEMP/prod-closure/bin/python" -o dist/sbom.json
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sbom
+          path: dist/sbom.json
+
+  build:
+    if: ${{ github.event_name != 'schedule' || github.repository_owner == 'ezclassify' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.14"]
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Build and test ezclassify-rest-contract
+        working-directory: types
+        run: |
+          pip install -e ".[dev]"
+          pytest
+
+      - name: Build and test ezclassify-rest-client
+        working-directory: client
+        run: |
+          pip install -e "../types"
+          pip install -e ".[dev]"
+          pytest
+
+      # Examples gate: the llm-classify demo's suite runs registry-free
+      # (stdlib mocks, local editable installs). Its MCP-subprocess live tests
+      # are a separate lane, `make test-mcp-live`, which needs a licensed MCP
+      # runtime at MCP_SERVER_PATH.
+      - name: Test llm-classify example
+        working-directory: examples/llm-classify
+        run: pytest tests/
+
+      - name: Conformance suite (repo-root test harness)
+        run: |
+          pip install -e ".[dev]"
+          pytest tests/
+
+      # Pydantic floor. Assertion keeps decoding open and keyword construction
+      # strict through a Pydantic 2 init marker, and the steps above run the
+      # latest Pydantic only. Re-run the tests that pin that split on the
+      # oldest release the package declares, on the oldest Python, last so no
+      # earlier step runs on the downgraded install.
+      - name: Construction and decoding split on the Pydantic floor
+        if: matrix.python-version == '3.11'
+        working-directory: types
+        run: |
+          pip install "pydantic==2.14.1"
+          pytest --no-cov tests/test_wire_fidelity.py -k "ConstructionClosed or UnknownResponse or UnknownRequest"
+
+      - name: Working tree is clean after build
+        run: git diff --exit-code && test -z "$(git status --porcelain)"

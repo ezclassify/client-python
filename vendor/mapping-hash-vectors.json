@@ -1,0 +1,188 @@
+[
+  {
+    "description": "minimal concept source — only required fields",
+    "input": {
+      "source": "https://example.com/api/countries",
+      "snapshotId": "snap-v1",
+      "mapping": {
+        "id_field": "iso3",
+        "label_field": "name",
+        "fields": []
+      }
+    },
+    "canonical": "{\"mapping\":{\"fields\":[],\"id_field\":\"iso3\",\"label_field\":\"name\"},\"snapshotId\":\"snap-v1\",\"source\":\"https://example.com/api/countries\"}",
+    "hash": "614cc967160de20c7c812278d0f71510dedec6db32b11a711cb1c2cd5afa1638"
+  },
+  {
+    "description": "concept source — HTTP transport, id, headers, query, pagination",
+    "input": {
+      "id": "countries",
+      "source": "https://api.example.com/v2/countries",
+      "transport": "http",
+      "snapshotId": "snap-2026-04-01",
+      "headers": {
+        "X-Client-Id": "studio",
+        "accept": "application/json"
+      },
+      "query": {
+        "limit": "500",
+        "format": "json"
+      },
+      "pagination": {
+        "strategy": "cursor",
+        "cursorParam": "next",
+        "cursorField": "next_cursor",
+        "pageSize": 100
+      },
+      "mapping": {
+        "id_field": "iso3",
+        "label_field": "name",
+        "fields": [
+          {
+            "from": "iso3",
+            "to": "id"
+          },
+          {
+            "from": "name",
+            "to": "label"
+          },
+          {
+            "from": "aliases[]",
+            "to": "aliases"
+          }
+        ]
+      }
+    },
+    "canonical": "{\"headers\":{\"X-Client-Id\":\"studio\",\"accept\":\"application/json\"},\"id\":\"countries\",\"mapping\":{\"fields\":[{\"from\":\"iso3\",\"to\":\"id\"},{\"from\":\"name\",\"to\":\"label\"},{\"from\":\"aliases[]\",\"to\":\"aliases\"}],\"id_field\":\"iso3\",\"label_field\":\"name\"},\"pagination\":{\"cursorField\":\"next_cursor\",\"cursorParam\":\"next\",\"pageSize\":100,\"strategy\":\"cursor\"},\"query\":{\"format\":\"json\",\"limit\":\"500\"},\"snapshotId\":\"snap-2026-04-01\",\"source\":\"https://api.example.com/v2/countries\",\"transport\":\"http\"}",
+    "hash": "bd74bdd8953cde4e2fb18365c89a28b4fb522795a2719dd7c383b90cd9b34cbf"
+  },
+  {
+    "description": "guide-rule source — bearer auth, rate limit, timeout, capabilities",
+    "input": {
+      "id": "rules-feed",
+      "source": "https://rules.example.com/policy",
+      "transport": "http",
+      "snapshotId": "rules-q2-2026",
+      "auth": {
+        "kind": "bearer",
+        "token": "${env:RULES_TOKEN}"
+      },
+      "rateLimit": {
+        "burst": 10,
+        "windowMs": 1000
+      },
+      "timeoutMs": 5000,
+      "capabilities": {
+        "livePoll": true,
+        "snapshot": true
+      },
+      "mapping": {
+        "when_field": "condition",
+        "decision_field": "verdict",
+        "rules": [
+          {
+            "from": "rule_id",
+            "to": "id"
+          }
+        ]
+      }
+    },
+    "canonical": "{\"auth\":{\"kind\":\"bearer\",\"token\":\"${env:RULES_TOKEN}\"},\"capabilities\":{\"livePoll\":true,\"snapshot\":true},\"id\":\"rules-feed\",\"mapping\":{\"decision_field\":\"verdict\",\"rules\":[{\"from\":\"rule_id\",\"to\":\"id\"}],\"when_field\":\"condition\"},\"rateLimit\":{\"burst\":10,\"windowMs\":1000},\"snapshotId\":\"rules-q2-2026\",\"source\":\"https://rules.example.com/policy\",\"timeoutMs\":5000,\"transport\":\"http\"}",
+    "hash": "604624be237e8453de0832ff45267bab7bdd068f176d08ddc5200f31e25f5483"
+  },
+  {
+    "description": "access-rule source — DHS tenant-sharing fields populated",
+    "input": {
+      "id": "shared-access",
+      "source": "srcref://parent-tenant/access",
+      "transport": "http",
+      "snapshotId": "snap-shared-v3",
+      "mapping": {
+        "principal_field": "subject",
+        "decision_field": "allow",
+        "fields": []
+      },
+      "liveFetch": true,
+      "snapshotRef": "sha256:1f7a3b9c0e2d5f4a",
+      "srcref": "srcref:5e4d6c7b-1234-4abc-9def-0123456789ab",
+      "grantId": "grantId:11112222-3333-4444-5555-666677778888"
+    },
+    "canonical": "{\"grantId\":\"grantId:11112222-3333-4444-5555-666677778888\",\"id\":\"shared-access\",\"liveFetch\":true,\"mapping\":{\"decision_field\":\"allow\",\"fields\":[],\"principal_field\":\"subject\"},\"snapshotId\":\"snap-shared-v3\",\"snapshotRef\":\"sha256:1f7a3b9c0e2d5f4a\",\"source\":\"srcref://parent-tenant/access\",\"srcref\":\"srcref:5e4d6c7b-1234-4abc-9def-0123456789ab\",\"transport\":\"http\"}",
+    "hash": "0e0183aa42ac1b6783f857869e766f424be8ba053f3aa9cb6cf9819502de016c"
+  },
+  {
+    "description": "concept source with deeply nested mapping — key sort goes all the way down",
+    "input": {
+      "id": "codes",
+      "source": "file:///opt/data/codes.json",
+      "transport": "file",
+      "snapshotId": "codes-2026-05",
+      "mapping": {
+        "zeta_field": "last",
+        "alpha_field": "first",
+        "nested": {
+          "zoo": {
+            "c": 3,
+            "a": 1,
+            "b": 2
+          },
+          "aardvark": {
+            "delta": [
+              {
+                "z": 1,
+                "a": 1
+              },
+              {
+                "b": 2
+              }
+            ]
+          }
+        },
+        "fields": [
+          {
+            "to": "b",
+            "from": "src.b"
+          },
+          {
+            "to": "a",
+            "from": "src.a"
+          }
+        ]
+      }
+    },
+    "canonical": "{\"id\":\"codes\",\"mapping\":{\"alpha_field\":\"first\",\"fields\":[{\"from\":\"src.b\",\"to\":\"b\"},{\"from\":\"src.a\",\"to\":\"a\"}],\"nested\":{\"aardvark\":{\"delta\":[{\"a\":1,\"z\":1},{\"b\":2}]},\"zoo\":{\"a\":1,\"b\":2,\"c\":3}},\"zeta_field\":\"last\"},\"snapshotId\":\"codes-2026-05\",\"source\":\"file:///opt/data/codes.json\",\"transport\":\"file\"}",
+    "hash": "9d290e4444b89ff66f797346569d1d631fef79d21bead1193608159f5826f0cd"
+  },
+  {
+    "description": "key order in input does not change hash (deep key-order invariance)",
+    "input": {
+      "snapshotId": "snap-x",
+      "source": "https://example.com/x",
+      "mapping": {
+        "fields": [],
+        "label_field": "name",
+        "id_field": "id"
+      }
+    },
+    "canonical": "{\"mapping\":{\"fields\":[],\"id_field\":\"id\",\"label_field\":\"name\"},\"snapshotId\":\"snap-x\",\"source\":\"https://example.com/x\"}",
+    "hash": "589db98e8f0857fd896222c1d471d6a59b18e9d3366ee62fcbef2163fd8ed3aa"
+  },
+  {
+    "description": "unicode and quote-bearing strings round-trip cleanly through JSON",
+    "input": {
+      "id": "unicode-test",
+      "source": "https://exämple.com/データ",
+      "snapshotId": "snap-é",
+      "headers": {
+        "X-Note": "has \"quotes\" and \\backslashes"
+      },
+      "mapping": {
+        "id_field": "id",
+        "label_field": "nâme",
+        "fields": []
+      }
+    },
+    "canonical": "{\"headers\":{\"X-Note\":\"has \\\"quotes\\\" and \\\\backslashes\"},\"id\":\"unicode-test\",\"mapping\":{\"fields\":[],\"id_field\":\"id\",\"label_field\":\"nâme\"},\"snapshotId\":\"snap-é\",\"source\":\"https://exämple.com/データ\"}",
+    "hash": "194d6f6f1c8320368a360f7831ac02a678d2577d346b76c28c9f39957c8807b3"
+  }
+]

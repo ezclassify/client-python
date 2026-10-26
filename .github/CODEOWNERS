@@ -1,0 +1,7 @@
+# Default owner for everything not matched by a later, more specific rule.
+* @ezclassify/maintainers
+
+# Generated code, regenerated from the vendored spec the spec bot mirrors
+# from contracts' OpenAPI document. Review a change here as a contract change.
+types/ezclassify_rest_contract/models.py @ezclassify/maintainers
+vendor/spec/ @ezclassify/maintainers

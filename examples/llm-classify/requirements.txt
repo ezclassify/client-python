@@ -1,0 +1,8 @@
+# Runtime dependencies for the llm-classify example.
+#
+# Both modes talk to an EzClassify runtime through the published SDK. Neither
+# needs an LLM SDK or any other third-party package.
+ezclassify-rest-client>=1.0.0
+
+# Test-only dependency.
+pytest>=8.0.0
