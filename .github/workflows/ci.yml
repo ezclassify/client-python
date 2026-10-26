@@ -167,7 +167,6 @@ jobs:
       - name: Build and test ezclassify-rest-client
         working-directory: client
         run: |
-          pip install -e "../types"
           pip install -e ".[dev]"
           pytest
 
