@@ -111,8 +111,13 @@ jobs:
       # stays permissive-only; rationale in THIRD-PARTY-NOTICES.md.
       - name: Dependency license compliance
         run: |
+          # These exact wheels supply both the licensed production environment
+          # and the final offline SBOM environment; do not rebuild the handoff.
+          snapshot="$RUNNER_TEMP/python-dependencies"
+          mkdir -p "$snapshot/wheels"
+          pip wheel --no-deps --wheel-dir "$snapshot/wheels" ./types ./client
           python -m venv "$RUNNER_TEMP/prod-closure"
-          "$RUNNER_TEMP/prod-closure/bin/pip" install --quiet ./types ./client
+          "$RUNNER_TEMP/prod-closure/bin/pip" install --quiet "$snapshot"/wheels/*.whl
           pip install --quiet pip-licenses==5.5.5
           pip-licenses --python "$RUNNER_TEMP/prod-closure/bin/python" --from=mixed \
             --ignore-packages certifi \
@@ -128,19 +133,30 @@ jobs:
           "$RUNNER_TEMP/prod-closure/bin/python" scripts/gen-notices.py
           git diff --exit-code THIRD-PARTY-NOTICES.md
 
-      # CycloneDX SBOM of the same clean production closure (dist/ is
-      # gitignored, so this cannot dirty the tree).
-      - name: Generate SBOM
+      # Preserve ordinary dependency inputs, not an early SBOM. The final job
+      # rebuilds the same production environment offline after both test legs.
+      - name: Freeze the licensed production closure
         run: |
-          pip install --quiet cyclonedx-bom==7.5.0
-          mkdir -p dist
-          cyclonedx-py environment "$RUNNER_TEMP/prod-closure/bin/python" -o dist/sbom.json
+          set -euo pipefail
+          snapshot="$RUNNER_TEMP/python-dependencies"
+          mkdir -p "$snapshot/wheels"
+          git rev-parse HEAD > "$snapshot/source-sha"
+          python -c 'import platform; print(platform.python_version())' > "$snapshot/python-version"
+          "$RUNNER_TEMP/prod-closure/bin/pip" list --format=freeze > "$snapshot/requirements.txt"
+          "$RUNNER_TEMP/prod-closure/bin/pip" list --format=json > "$snapshot/installed.json"
+          sed -E '/^ezclassify-rest-(client|contract)==/Id' "$snapshot/requirements.txt" > "$snapshot/third-party.txt"
+          pip download --only-binary=:all: --no-deps --dest "$snapshot/wheels" -r "$snapshot/third-party.txt"
+          "$RUNNER_TEMP/prod-closure/bin/python" scripts/check_frozen_wheels.py "$snapshot/wheels"
+          (cd "$snapshot" && sha256sum requirements.txt installed.json wheels/* > SHA256SUMS)
+          git diff --exit-code && test -z "$(git status --porcelain)"
 
-      - name: Upload SBOM artifact
+      - name: Retain frozen production dependency inputs
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: sbom
-          path: dist/sbom.json
+          name: python-production-dependencies
+          path: ${{ runner.temp }}/python-dependencies
+          retention-days: 1
+          if-no-files-found: error
 
   build:
     if: ${{ github.event_name != 'schedule' || github.repository_owner == 'ezclassify' }}
@@ -197,3 +213,59 @@ jobs:
 
       - name: Working tree is clean after build
         run: git diff --exit-code && test -z "$(git status --porcelain)"
+
+  qualified-sbom:
+    needs: [checks, build]
+    if: ${{ always() && !cancelled() && (github.event_name != 'schedule' || github.repository_owner == 'ezclassify') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Require all candidate validation
+        env:
+          CHECKS_RESULT: ${{ needs.checks.result }}
+          TEST_RESULT: ${{ needs.build.result }}
+        run: test "$CHECKS_RESULT" = success && test "$TEST_RESULT" = success
+
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: python-production-dependencies
+          path: ${{ runner.temp }}/python-dependencies
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version-file: ${{ runner.temp }}/python-dependencies/python-version
+
+      - name: Restore the exact production inventory offline
+        run: |
+          set -euo pipefail
+          snapshot="$RUNNER_TEMP/python-dependencies"
+          test "$(cat "$snapshot/source-sha")" = "$(git rev-parse HEAD)"
+          (cd "$snapshot" && sha256sum --check SHA256SUMS)
+          python -m venv "$RUNNER_TEMP/prod-closure"
+          "$RUNNER_TEMP/prod-closure/bin/pip" install --no-index --no-deps --find-links "$snapshot/wheels" -r "$snapshot/requirements.txt"
+          "$RUNNER_TEMP/prod-closure/bin/pip" list --format=json > "$RUNNER_TEMP/restored-inventory.json"
+          python - "$snapshot/installed.json" "$RUNNER_TEMP/restored-inventory.json" <<'PY'
+          import json, re, sys
+          def inventory(path):
+              with open(path) as source:
+                  return {re.sub(r"[-_.]+", "-", p["name"]).lower(): p["version"] for p in json.load(source)}
+          if inventory(sys.argv[1]) != inventory(sys.argv[2]):
+              raise SystemExit("Restored production inventory differs from the licensed candidate")
+          PY
+
+      - name: Generate qualified SBOM from the validated production closure
+        run: |
+          pip install --quiet cyclonedx-bom==7.5.0
+          mkdir -p dist
+          cyclonedx-py environment "$RUNNER_TEMP/prod-closure/bin/python" -o dist/sbom.json
+
+      - name: Upload qualified SBOM
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sbom
+          path: dist/sbom.json
+          if-no-files-found: error
