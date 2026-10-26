@@ -36,6 +36,7 @@ WORKFLOW = WORKFLOW_PATH.read_text(encoding="utf-8")
 
 BOT_NAME = "ezclassify-spec-bot[bot]"
 BOT_EMAIL = "ezclassify-spec-bot[bot]@users.noreply.github.com"
+CANONICAL_BOT_EMAIL = "348097708+ezclassify-spec-bot[bot]@users.noreply.github.com"
 ZERO_SHA = "0" * 40
 
 
@@ -140,11 +141,12 @@ def test_refusal_names_the_spec_bot_and_the_contracts_source() -> None:
 def test_identity_is_two_named_constants_not_a_pattern() -> None:
     """A reviewer must be able to read the admitted identity off the workflow.
 
-    A regex with an optional `([0-9]+\\+)?` prefix would admit an address the
-    spec bot never produces. Constants diff; regexes hide.
+    An arbitrary numeric prefix would admit another account. Both observed
+    writer addresses are pinned explicitly.
     """
     assert f"ALLOWED_BOT_LOGIN: {BOT_NAME}" in WORKFLOW
     assert f"ALLOWED_BOT_EMAIL: {BOT_EMAIL}" in WORKFLOW
+    assert f"ALLOWED_BOT_CANONICAL_EMAIL: {CANONICAL_BOT_EMAIL}" in WORKFLOW
     assert '[ "$AUTHOR" != "$ALLOWED_BOT_LOGIN <$ALLOWED_BOT_EMAIL>" ]' in WORKFLOW
     assert "([0-9]+\\+)?" not in WORKFLOW
 
@@ -252,9 +254,7 @@ def driven(tmp_path_factory: pytest.TempPathFactory):
         "vendor/spec/MANIFEST.json",
         '{"one": true}\n',
     )
-    # The GitHub App noreply form with a numeric account-ID prefix. Real for
-    # dependabot and github-actions; never produced by the spec bot, which
-    # sets the plain address explicitly.
+    # An unrecognized numeric account ID must still be refused.
     shas["numeric"] = repo.commit(
         BOT_NAME,
         f"12345+{BOT_EMAIL}",
@@ -315,12 +315,48 @@ def _drive(
             "PR_LABELS": pr_labels,
             "ALLOWED_BOT_LOGIN": BOT_NAME,
             "ALLOWED_BOT_EMAIL": BOT_EMAIL,
+            "ALLOWED_BOT_CANONICAL_EMAIL": CANONICAL_BOT_EMAIL,
             "OVERRIDE_LABEL": "spec-mirror-override",
         },
         capture_output=True,
         text=True,
     )
     return done.returncode, done.stdout + done.stderr
+
+
+@pytest.mark.parametrize(
+    "name,email,expected",
+    [
+        (BOT_NAME, CANONICAL_BOT_EMAIL, 0),
+        (BOT_NAME, f"348097709+{BOT_EMAIL}", 1),
+        (BOT_NAME, "348097708+other-bot[bot]@users.noreply.github.com", 1),
+        ("Other Bot", CANONICAL_BOT_EMAIL, 1),
+    ],
+)
+def test_github_squash_bot_identity_is_exact(driven, name, email, expected) -> None:
+    """A GitHub squash author is admitted without accepting arbitrary ID prefixes."""
+    repo, script, _ = driven
+    before = repo.git("rev-parse", "HEAD")
+    after = repo.commit(
+        name,
+        email,
+        "chore(spec): vendor contracts@deadbeef (#9)",
+        "vendor/spec/MANIFEST.json",
+        email + name + "\n",
+    )
+    code, out = _drive(repo, script, before=before, after=after)
+    assert code == expected, out
+    if expected == 0:
+        for author, wanted in [(BOT_NAME, 0), ("other-bot[bot]", 1)]:
+            code, out = _drive(
+                repo,
+                script,
+                before=before,
+                after=after,
+                event="pull_request",
+                pr_author=author,
+            )
+            assert code == wanted, out
 
 
 def test_the_real_bot_identity_is_admitted(driven) -> None:

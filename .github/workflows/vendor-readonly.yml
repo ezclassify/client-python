@@ -5,6 +5,10 @@ name: vendor-readonly
 # and are written exclusively by the EzClassify spec bot under the
 # `ezclassify-spec-bot` GitHub App identity.
 #
+# Exact admitted bot author addresses: the App-created short address and
+# 348097708+ezclassify-spec-bot[bot]@users.noreply.github.com on GitHub squash.
+# Both require the exact bot name; other numeric IDs/addresses are refused.
+#
 # Two gates run in series:
 #   1. Identity gate: every commit touching vendor/ must carry the git author
 #      identity `ezclassify-spec-bot[bot]
@@ -77,17 +81,12 @@ jobs:
           # explicit maintainer override, matters here).
           PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
           ALLOWED_BOT_LOGIN: ezclassify-spec-bot[bot]
-          # The exact git author email the spec bot commits with. The
-          # per-commit check compares the whole `name <email>` pair against
-          # these two constants, so a reviewer can read the admitted identity
-          # off the workflow instead of decoding a regex.
-          #
-          # No numeric-ID prefix. GitHub's own Apps use the
-          # `<id>+<login>@users.noreply.github.com` form, but the spec bot sets
-          # the plain address explicitly, and accepting the prefixed form as
-          # well would widen the admitted set past anything the writer
-          # produces.
+          # Exact App-created author address; GitHub squash identity is also
+          # pinned below. Both require the same exact bot name.
           ALLOWED_BOT_EMAIL: ezclassify-spec-bot[bot]@users.noreply.github.com
+          # GitHub preserves this verified bot account when squash-merging its PR.
+          # Admit only this exact ID/address, never an arbitrary numeric prefix.
+          ALLOWED_BOT_CANONICAL_EMAIL: 348097708+ezclassify-spec-bot[bot]@users.noreply.github.com
           OVERRIDE_LABEL: spec-mirror-override
         run: |
           set -euo pipefail
@@ -268,15 +267,12 @@ jobs:
             else
               echo "Identity gate: PR authored by ${ALLOWED_BOT_LOGIN}"
             fi
-            # Exact string comparison against the two constants above, not a
-            # pattern: a pattern with an optional numeric-ID prefix would admit
-            # an identity the spec bot never produces. See the
-            # ALLOWED_BOT_EMAIL note for why the plain form is the canonical
-            # one.
+            # Match either exact name/address pair; never a numeric-prefix pattern.
             BAD_AUTHORS=""
             for SHA in $VENDOR_COMMITS; do
               AUTHOR=$(git log -1 --format='%an <%ae>' "$SHA")
-              if [ "$AUTHOR" != "$ALLOWED_BOT_LOGIN <$ALLOWED_BOT_EMAIL>" ]; then
+              if [ "$AUTHOR" != "$ALLOWED_BOT_LOGIN <$ALLOWED_BOT_EMAIL>" ] &&
+                 [ "$AUTHOR" != "$ALLOWED_BOT_LOGIN <$ALLOWED_BOT_CANONICAL_EMAIL>" ]; then
                 BAD_AUTHORS="$BAD_AUTHORS  $SHA  $AUTHOR"$'\n'
               fi
             done
@@ -292,7 +288,7 @@ jobs:
               echo "bot propagate it."
               exit 1
             fi
-            echo "Identity gate: all vendor/ commits authored by ${ALLOWED_BOT_LOGIN} <${ALLOWED_BOT_EMAIL}>"
+            echo "Identity gate: all vendor/ commits authored by ${ALLOWED_BOT_LOGIN} <${ALLOWED_BOT_EMAIL}> or <${ALLOWED_BOT_CANONICAL_EMAIL}>"
           fi
 
           # ---------- Commit-subject gate ----------
