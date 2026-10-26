@@ -5,4 +5,4 @@
 ezclassify-rest-client>=1.0.0
 
 # Test-only dependency.
-pytest>=8.0.0
+pytest>=9.1.1
