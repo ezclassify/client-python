@@ -1,3 +1,6 @@
+# Routine updates preserve the supported compatibility lines.
+# Major upgrades are deliberate; security updates retain their separate policy.
+
 version: 2
 
 updates:
@@ -17,13 +20,15 @@ updates:
       pip-development:
         dependency-type: development
         update-types: [minor, patch]
-    # Only the first-party packages are held back: every release sets their
-    # versions together, so a bump proposed here would fight the release. A third-party major raises a pull request like
-    # anything else and lands after review; the supported Python matrix and the
-    # license, notices and SBOM gates all run on it.
     ignore:
-      - dependency-name: 'ezclassify-rest-*'
+      - dependency-name: "ezclassify-rest-*"
     labels: [dependencies]
+    allow:
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-patch
+    open-pull-requests-limit: 2
 
   - package-ecosystem: github-actions
     directory: /
@@ -32,6 +37,12 @@ updates:
       day: monday
     groups:
       github-actions:
-        patterns: ['*']
+        patterns: ["*"]
         update-types: [minor, patch]
     labels: [dependencies, ci]
+    allow:
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-patch
+    open-pull-requests-limit: 2
