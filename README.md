@@ -118,7 +118,11 @@ When your administrator supplies an application credential, pass it through
 ```python
 with EzClassifyClient(
     "https://runtime.example.com",
-    headers={"X-EzClassify-Application-Grant": os.environ["EZCLASSIFY_APPLICATION_CREDENTIAL"]},
+    headers={
+        "X-EzClassify-Application-Grant": os.environ[
+            "EZCLASSIFY_APPLICATION_CREDENTIAL"
+        ]
+    },
 ) as deployment:
     with deployment.context("cedar-valley") as ctx:
         print(ctx.describe().version)
