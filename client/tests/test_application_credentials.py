@@ -34,7 +34,7 @@ def _description(context_id: str = "default") -> dict[str, Any]:
 def test_application_header_is_opaque_copied_and_context_scoped() -> None:
     contexts = respx.get(f"{_BASE}/v1/ctx").respond(200, json={"contexts": ["default"]})
     versions = respx.get(f"{_BASE}/v1/ctx/default").respond(
-        200, json={"versions": ["1.0.0"]}
+        200, json={"id": "default", "versions": ["1.0.0"]}
     )
     describe = respx.get(f"{_BASE}/v1/ctx/default/1.0.0").respond(
         200,
@@ -88,8 +88,8 @@ def test_application_header_is_opaque_copied_and_context_scoped() -> None:
         ({_HEADER: _GRANT, _HEADER.lower(): _GRANT}, None),
         ({_HEADER: _GRANT, "aUtHoRiZaTiOn": "Bearer caller"}, None),
         ({_HEADER: _GRANT, "X-EZCLASSIFY-CONTEXT-TOKEN": "context"}, None),
-        ({_HEADER: _GRANT}, RestClientCredentials(access_token="caller")),
-        ({_HEADER: _GRANT}, RestClientCredentials(context_token="context")),
+        ({_HEADER: _GRANT}, RestClientCredentials(access_token=_GRANT)),
+        ({_HEADER: _GRANT}, RestClientCredentials(context_token=_GRANT)),
     ],
 )
 def test_invalid_application_auth_refuses_before_client_creation(
@@ -110,11 +110,13 @@ def test_invalid_application_auth_refuses_before_client_creation(
 
 
 @respx.mock(assert_all_called=False)
-def test_application_credential_does_not_follow_cross_origin_redirect() -> None:
-    first = respx.get(f"{_BASE}/v1/ctx").respond(
+def test_application_credential_does_not_follow_cross_origin_redirect(
+    respx_mock: respx.MockRouter,
+) -> None:
+    first = respx_mock.get(f"{_BASE}/v1/ctx").respond(
         302, headers={"Location": "https://other.example.test/v1/ctx"}
     )
-    other = respx.get("https://other.example.test/v1/ctx").respond(
+    other = respx_mock.get("https://other.example.test/v1/ctx").respond(
         200, json={"contexts": []}
     )
     with EzClassifyClient(_BASE, headers={_HEADER: _GRANT}) as client:
@@ -128,13 +130,14 @@ def test_application_credential_does_not_follow_cross_origin_redirect() -> None:
 @respx.mock(assert_all_called=False)
 def test_context_entry_points_carry_application_auth_without_replay(
     factory: Any,
+    respx_mock: respx.MockRouter,
 ) -> None:
-    description = respx.get(f"{_BASE}/v1/ctx/default/1.0.0").respond(
+    description = respx_mock.get(f"{_BASE}/v1/ctx/default/1.0.0").respond(
         200,
         json=_description(),
         headers={"X-EzClassify-Resolved-Version": "1.0.0"},
     )
-    refusal = respx.post(f"{_BASE}/v1/ctx/default/1.0.0/scheme/validate").respond(
+    refusal = respx_mock.post(f"{_BASE}/v1/ctx/default/1.0.0/scheme/validate").respond(
         403,
         json={"error": "Application refused"},
         headers={"X-EzClassify-Resolved-Version": "1.0.0"},
@@ -149,7 +152,7 @@ def test_context_entry_points_carry_application_auth_without_replay(
     assert caught.value.status_code == 403
     assert refusal.call_count == 1
     assert description.call_count == (1 if factory is connect_context else 0)
-    for call in respx.calls:
+    for call in respx_mock.calls:
         assert call.request.url.host == "runtime.example.test"
         assert call.request.headers[_HEADER] == _GRANT
         assert "authorization" not in call.request.headers
@@ -158,19 +161,22 @@ def test_context_entry_points_carry_application_auth_without_replay(
 
 @pytest.mark.parametrize("factory", [EzClassifyContext, connect_context])
 @respx.mock(assert_all_called=False)
-def test_context_application_credential_does_not_follow_redirect(factory: Any) -> None:
-    respx.get(f"{_BASE}/v1/ctx/default/1.0.0").respond(
+def test_context_application_credential_does_not_follow_redirect(
+    factory: Any,
+    respx_mock: respx.MockRouter,
+) -> None:
+    respx_mock.get(f"{_BASE}/v1/ctx/default/1.0.0").respond(
         200,
         json=_description(),
         headers={"X-EzClassify-Resolved-Version": "1.0.0"},
     )
-    first = respx.post(f"{_BASE}/v1/ctx/default/1.0.0/scheme/validate").respond(
+    first = respx_mock.post(f"{_BASE}/v1/ctx/default/1.0.0/scheme/validate").respond(
         302,
         headers={
             "Location": "https://other.example.test/v1/ctx/default/1.0.0/scheme/validate"
         },
     )
-    other = respx.post(
+    other = respx_mock.post(
         "https://other.example.test/v1/ctx/default/1.0.0/scheme/validate"
     ).respond(200, json={})
     with factory(
