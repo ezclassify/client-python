@@ -356,6 +356,45 @@ class RestClientCredentials:
             raise ValueError("context_token must be None or non-blank")
 
 
+def _validate_application_credential(
+    headers: Dict[str, str], credentials: RestClientCredentials
+) -> str | None:
+    """Validate the opaque application auth mode before creating a transport."""
+    if any(not isinstance(name, str) for name in headers):
+        raise ValueError("HTTP header names must be strings")
+    application_headers = [
+        name for name in headers if name.lower() == "x-ezclassify-application-grant"
+    ]
+    if not application_headers:
+        return None
+    if (
+        len(application_headers) != 1
+        or credentials.access_token is not None
+        or credentials.context_token is not None
+        or any(
+            name.lower() in {"authorization", "x-ezclassify-context-token"}
+            for name in headers
+        )
+    ):
+        raise ValueError(
+            "An application credential requires one header and cannot be combined "
+            "with bearer or Context token credentials"
+        )
+    name = application_headers[0]
+    value = headers[name]
+    if (
+        not isinstance(value, str)
+        or not value
+        or value != value.strip()
+        or any(ord(character) < 32 or ord(character) >= 127 for character in value)
+    ):
+        raise ValueError(
+            "An application credential must be nonempty printable ASCII without "
+            "leading or trailing whitespace"
+        )
+    return name
+
+
 class EzClassifyClient:
     """A deployment client for discovery, health, and Context binding.
 
@@ -367,9 +406,15 @@ class EzClassifyClient:
     to finish, the whole response body included. A call that runs out raises
     :class:`RequestTimeoutError`.
 
+    Supply an opaque managed application credential through
+    ``headers={"X-EzClassify-Application-Grant": credential}``. It is sent only
+    on Context routes, never health probes, and cannot be combined with bearer
+    or Context token credentials. The Runtime verifies it.
+
     Raises:
         TypeError: ``timeout`` is not a number.
-        ValueError: ``timeout`` is not positive and finite.
+        ValueError: ``timeout`` is not positive and finite, or an application
+            credential is empty, malformed, duplicated or mixed with token auth.
     """
 
     def __init__(
@@ -384,6 +429,9 @@ class EzClassifyClient:
         self._base = base_url.rstrip("/")
         self._headers = dict(headers or {})
         self._credentials = credentials or RestClientCredentials()
+        self._application_header = _validate_application_credential(
+            self._headers, self._credentials
+        )
         self._client = httpx.Client(
             base_url=self._base,
             timeout=self._timeout,
@@ -413,6 +461,8 @@ class EzClassifyClient:
         if path == "/v1/ctx" or path.startswith("/v1/ctx/"):
             if self._credentials.context_token is not None:
                 headers["x-ezclassify-context-token"] = self._credentials.context_token
+        elif self._application_header is not None:
+            del headers[self._application_header]
         return headers
 
     def list_contexts(self) -> List[str]:
@@ -430,14 +480,14 @@ class EzClassifyClient:
         """List installed versions for one Context, highest version first.
 
         Raises:
-            ValueError: ``context_id`` is blank.
+            ValueError: ``context_id`` is blank or a dot segment.
             MalformedResponseError: The answer is not the list the contract
                 describes.
             EzClassifyClientError: The server refused the request or could not
                 be reached. A 429 carries ``retry_after``.
         """
-        if not context_id or not context_id.strip():
-            raise ValueError("context_id must not be blank or empty")
+        if not context_id or not context_id.strip() or context_id in {".", ".."}:
+            raise ValueError("context_id must not be blank or a dot segment")
         path = f"/v1/ctx/{quote(context_id, safe='')}"
         body = self._get(path, _CtxVersionsResponseBody, "context version discovery")
         return body.versions
@@ -466,8 +516,8 @@ class EzClassifyClient:
         sends every operation to the server.
 
         Raises:
-            ValueError: A blank ``context_id``, a ``context_version`` that is
-                only whitespace, or ``cache_access_decisions`` on an unpinned
+            ValueError: A blank or dot-segment ``context_id``, a ``context_version``
+                that is only whitespace or a dot segment, or ``cache_access_decisions`` on an unpinned
                 binding.
             MalformedResponseError: The Context description is not the one
                 the contract describes.
