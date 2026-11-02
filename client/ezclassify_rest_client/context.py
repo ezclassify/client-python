@@ -29,6 +29,7 @@ from .client import (
     MalformedResponseError,
     RestClientCredentials,
     _api_error,
+    _validate_application_credential,
     _decode_json,
     _decode_model,
     _decode_models,
@@ -201,13 +202,16 @@ def connect_context(
 
     ``timeout`` is the most time, in seconds, any one request may take from
     start to finish, the whole response body included; this call's own
-    request included.
+    request included. ``headers`` may supply one opaque managed application
+    credential in ``X-EzClassify-Application-Grant``, instead of bearer or
+    Context token credentials. It is passed unchanged for Runtime verification.
 
     Raises:
         TypeError: ``timeout`` is not a number.
-        ValueError: ``context_id`` is blank, ``context_version`` is only
-            whitespace, ``timeout`` is not positive and finite, or
-            ``cache_access_decisions`` is set on an unpinned binding.
+        ValueError: ``context_id`` is blank or a dot segment, ``context_version`` is
+            only whitespace or a dot segment, ``timeout`` is not positive and finite, or
+            ``cache_access_decisions`` is set on an unpinned binding, or the
+            application credential is malformed, duplicated or mixed with tokens.
         MalformedResponseError: The Context description is not the one the
             contract describes.
         RequestTimeoutError: The description did not arrive within
@@ -263,9 +267,10 @@ class EzClassifyContext:
 
     Raises:
         TypeError: ``timeout`` is not a number.
-        ValueError: ``context_id`` is blank, ``context_version`` is only
-            whitespace, ``timeout`` is not positive and finite, or
-            ``cache_access_decisions`` is set on an unpinned binding.
+        ValueError: ``context_id`` is blank or a dot segment, ``context_version`` is
+            only whitespace or a dot segment, ``timeout`` is not positive and finite, or
+            ``cache_access_decisions`` is set on an unpinned binding, or the
+            application credential is malformed, duplicated or mixed with tokens.
     """
 
     def __init__(
@@ -280,13 +285,17 @@ class EzClassifyContext:
         cache_access_decisions: bool = False,
         disable_cache: bool = False,
     ) -> None:
-        if not context_id or not context_id.strip():
-            raise ValueError("context_id must not be blank or empty")
+        if not context_id or not context_id.strip() or context_id in {".", ".."}:
+            raise ValueError("context_id must not be blank or a dot segment")
         self._timeout = require_timeout(timeout)
         if context_version == "":
             context_version = None
-        if context_version is not None and not context_version.strip():
-            raise ValueError("context_version must not be only whitespace")
+        if context_version is not None and (
+            not context_version.strip() or context_version in {".", ".."}
+        ):
+            raise ValueError(
+                "context_version must not be only whitespace or a dot segment"
+            )
         resolved_credentials = credentials or RestClientCredentials()
         if cache_access_decisions and (
             context_version is None or context_version == "latest"
@@ -298,6 +307,7 @@ class EzClassifyContext:
         self._context_id = context_id
         self._version = context_version
         request_headers = dict(headers or {})
+        _validate_application_credential(request_headers, resolved_credentials)
         if resolved_credentials.access_token is not None:
             request_headers["Authorization"] = (
                 f"Bearer {resolved_credentials.access_token}"

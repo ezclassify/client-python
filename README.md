@@ -110,6 +110,30 @@ resolved by the server is on `ctx.resolved_version`.
 Operation groups are `ctx.scheme`, `ctx.guide`, `ctx.access`, `ctx.document`,
 and `ctx.crosswalk`. There is intentionally no loose scheme-addressed mode.
 
+### Managed application credentials
+
+When your administrator supplies an application credential, pass it through
+`headers` instead of bearer and Context token credentials:
+
+```python
+with EzClassifyClient(
+    "https://runtime.example.com",
+    headers={
+        "X-EzClassify-Application-Grant": os.environ[
+            "EZCLASSIFY_APPLICATION_CREDENTIAL"
+        ]
+    },
+) as deployment:
+    with deployment.context("cedar-valley") as ctx:
+        print(ctx.describe().version)
+```
+
+The client sends the opaque value unchanged on Context routes and omits it
+from health probes. Runtime verifies the credential and its current application
+permissions. Combining authentication modes, duplicate application headers,
+blank values, control characters or surrounding whitespace raises `ValueError`
+before a connection is created. Redirects are refused rather than followed.
+
 ## API surface
 
 | Operation | Surface |

@@ -63,6 +63,16 @@ recognizes `infer`, `default`, `context`, and `repair` with `source_rule` as
 previously derived facts; other labels, including `parse`, `user` and `stated`,
 remain authored input. The engine owns settling and derivation.
 
+## Application credentials
+
+For a managed application, set
+`headers={"X-EzClassify-Application-Grant": credential}` when creating
+`EzClassifyClient` or calling `connect_context`. Obtain the credential from
+your Runtime administrator. The client forwards it unchanged on Context routes,
+keeps it off health probes and refuses redirects. Use it instead of bearer or
+Context token credentials. Invalid or mixed credentials raise `ValueError`
+before the HTTP client is created.
+
 ## Errors and rate limits
 
 Failures raise `EzClassifyClientError`, which carries `status_code`, the
