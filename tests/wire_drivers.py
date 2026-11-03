@@ -86,6 +86,12 @@ def _attributes(body: dict[str, object]) -> dict[str, object]:
     return value
 
 
+def _context(body: dict[str, object]) -> dict[str, object] | None:
+    value = body.get("context")
+    assert value is None or isinstance(value, dict)
+    return value
+
+
 def _post_with_query(
     ctx: EzClassifyContext, op: str, body: dict[str, object], query: dict[str, str]
 ) -> object:
@@ -219,8 +225,12 @@ def run_context(case: WireCase, ctx: EzClassifyContext) -> object:
         return s.check_coverage(children, _text(body, "parent"))
     if op == "access/check":
         if "assertions" in body:
-            return ctx.access.check(_facts(body["assertions"]), _attributes(body))
-        return ctx.access.check_by_marking(_text(body, "marking"), _attributes(body))
+            return ctx.access.check(
+                _facts(body["assertions"]), _attributes(body), context=_context(body)
+            )
+        return ctx.access.check_by_marking(
+            _text(body, "marking"), _attributes(body), context=_context(body)
+        )
     if op == "access/describe-rule":
         return ctx.access.describe_rule(_text(body, "ruleId"))
     if op == "access/describe-requirements":
@@ -257,7 +267,10 @@ def run_context(case: WireCase, ctx: EzClassifyContext) -> object:
         profile = _optional_text(body, "responseProfile")
         assert profile in (None, "summary", "standard", "full")
         return ctx.document.assess_access(
-            _text(body, "text"), _attributes(body), response_profile=profile
+            _text(body, "text"),
+            _attributes(body),
+            context=_context(body),
+            response_profile=profile,
         )
     raise AssertionError(f"no public driver for {case.id}: {op}")
 
@@ -266,9 +279,12 @@ def run_deployment(case: WireCase, client: EzClassifyClient) -> object:
     """Use discovery/health adapters where declared; raw routes stay private."""
     if case.id in PRIVATE_SEAMS:
         # The raw route: no public method sends it, so no model decodes it.
-        response = client._client.get(
-            case.path, headers=client._request_headers(case.path)
-        )
+        headers = client._request_headers(case.path)
+        if case.credential == "context-token":
+            # Raw undeclared-route probes reproduce their explicit carrier;
+            # normal SDK routing still keeps it off non-Context operations.
+            headers["x-ezclassify-context-token"] = _CARRIER
+        response = client._client.get(case.path, headers=headers)
         if response.is_error:
             raise _api_error(response)
         return response.json()
