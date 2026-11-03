@@ -369,7 +369,6 @@ def _validate_application_credential(
         return None
     if (
         len(application_headers) != 1
-        or credentials.access_token is not None
         or credentials.context_token is not None
         or any(
             name.lower() in {"authorization", "x-ezclassify-context-token"}
@@ -378,7 +377,8 @@ def _validate_application_credential(
     ):
         raise ValueError(
             "An application credential requires one header and cannot be combined "
-            "with bearer or Context token credentials"
+            "with Context tokens or an explicit Authorization header; supply a "
+            "user bearer through RestClientCredentials.access_token"
         )
     name = application_headers[0]
     value = headers[name]
@@ -408,13 +408,16 @@ class EzClassifyClient:
 
     Supply an opaque managed application credential through
     ``headers={"X-EzClassify-Application-Grant": credential}``. It is sent only
-    on Context routes, never health probes, and cannot be combined with bearer
-    or Context token credentials. The Runtime verifies it.
+    on Context routes, never health probes. Supply the current user's bearer
+    through ``RestClientCredentials.access_token`` when the application's user
+    policy requires it. Context token credentials cannot accompany the grant.
+    The Runtime verifies both credentials under the configured policy.
 
     Raises:
         TypeError: ``timeout`` is not a number.
         ValueError: ``timeout`` is not positive and finite, or an application
-            credential is empty, malformed, duplicated or mixed with token auth.
+            credential is empty, malformed, duplicated or mixed with Context
+            credentials or an explicit Authorization header.
     """
 
     def __init__(

@@ -113,7 +113,8 @@ and `ctx.crosswalk`. There is intentionally no loose scheme-addressed mode.
 ### Managed application credentials
 
 When your administrator supplies an application credential, pass it through
-`headers` instead of bearer and Context token credentials:
+`headers`. When its user policy requires a bearer token, also supply the
+current user's token from your application's identity provider:
 
 ```python
 with EzClassifyClient(
@@ -123,6 +124,7 @@ with EzClassifyClient(
             "EZCLASSIFY_APPLICATION_CREDENTIAL"
         ]
     },
+    credentials=RestClientCredentials(access_token=current_user_access_token),
 ) as deployment:
     with deployment.context("cedar-valley") as ctx:
         print(ctx.describe().version)
@@ -130,9 +132,15 @@ with EzClassifyClient(
 
 The client sends the opaque value unchanged on Context routes and omits it
 from health probes. Runtime verifies the credential and its current application
-permissions. Combining authentication modes, duplicate application headers,
-blank values, control characters or surrounding whitespace raises `ValueError`
-before a connection is created. Redirects are refused rather than followed.
+permissions. Omit `credentials` when the application's policy does not use a
+bearer token. Keep each client and its caches scoped to one caller; the SDK
+does not sign users in. Combining a grant with a Context token or an explicit
+Authorization header, duplicate application headers, blank values, control
+characters or surrounding whitespace raises `ValueError` before a connection
+is created. Redirects are refused rather than followed. Runtime execution
+requires an authorized application definition and its configured proof, also
+for ordinary caller credentials; an application identifier alone grants no
+access. Protected standalone configuration works without Studio.
 
 ## API surface
 

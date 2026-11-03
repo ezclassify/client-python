@@ -203,15 +203,18 @@ def connect_context(
     ``timeout`` is the most time, in seconds, any one request may take from
     start to finish, the whole response body included; this call's own
     request included. ``headers`` may supply one opaque managed application
-    credential in ``X-EzClassify-Application-Grant``, instead of bearer or
-    Context token credentials. It is passed unchanged for Runtime verification.
+    credential in ``X-EzClassify-Application-Grant``. It may accompany the
+    current user's ``RestClientCredentials.access_token`` when required by the
+    application's user policy, but never a Context token. Both are passed
+    unchanged for Runtime verification.
 
     Raises:
         TypeError: ``timeout`` is not a number.
         ValueError: ``context_id`` is blank or a dot segment, ``context_version`` is
             only whitespace or a dot segment, ``timeout`` is not positive and finite, or
             ``cache_access_decisions`` is set on an unpinned binding, or the
-            application credential is malformed, duplicated or mixed with tokens.
+            application credential is malformed, duplicated or mixed with Context
+            credentials or an explicit Authorization header.
         MalformedResponseError: The Context description is not the one the
             contract describes.
         RequestTimeoutError: The description did not arrive within
@@ -270,7 +273,8 @@ class EzClassifyContext:
         ValueError: ``context_id`` is blank or a dot segment, ``context_version`` is
             only whitespace or a dot segment, ``timeout`` is not positive and finite, or
             ``cache_access_decisions`` is set on an unpinned binding, or the
-            application credential is malformed, duplicated or mixed with tokens.
+            application credential is malformed, duplicated or mixed with Context
+            credentials or an explicit Authorization header.
     """
 
     def __init__(
